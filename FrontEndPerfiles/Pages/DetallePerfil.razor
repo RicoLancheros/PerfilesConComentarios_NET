@@ -1,0 +1,270 @@
+@page "/perfil/{PerfilId:int}"
+@using FrontEndPerfiles.Models
+@using FrontEndPerfiles.Services
+@inject PerfilService PerfilService
+@inject ComentarioService ComentarioService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Perfil de @(perfil?.Nombre ?? "Usuario")</PageTitle>
+
+<div class="container mt-4">
+    <button class="btn btn-secondary mb-3" @onclick="Volver">
+        ← Volver al listado
+    </button>
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+        </div>
+    }
+    else if (perfil == null)
+    {
+        <div class="alert alert-danger">
+            Perfil no encontrado.
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        @if (!string.IsNullOrEmpty(perfil.Foto))
+                        {
+                            <img src="@perfil.Foto" alt="@perfil.Nombre" class="rounded-circle mb-3" style="width: 200px; height: 200px; object-fit: cover;" />
+                        }
+                        else
+                        {
+                            <div class="rounded-circle bg-secondary mb-3 mx-auto d-flex align-items-center justify-content-center" style="width: 200px; height: 200px;">
+                                <span class="text-white" style="font-size: 4rem;">@perfil.Nombre.Substring(0, 1).ToUpper()</span>
+                            </div>
+                        }
+                        <h3>@perfil.Nombre</h3>
+                        <p class="text-muted">@perfil.Email</p>
+                        <hr />
+                        <p><strong>Teléfono:</strong> @perfil.Telefono</p>
+                        <p><strong>Dirección:</strong> @perfil.Direccion</p>
+                        <p><small class="text-muted">Miembro desde: @perfil.FechaRegistro.ToShortDateString()</small></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>Comentarios</h4>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrEmpty(currentUserEmail))
+                        {
+                            <div class="mb-4">
+                                <h5>Escribe un comentario</h5>
+                                @if (!string.IsNullOrEmpty(errorMessage))
+                                {
+                                    <div class="alert alert-danger">@errorMessage</div>
+                                }
+                                <EditForm Model="@nuevoComentario" OnValidSubmit="@HandleCrearComentario">
+                                    <div class="mb-3">
+                                        <InputTextArea class="form-control" rows="3" @bind-Value="nuevoComentario.Contenido" placeholder="Escribe tu comentario aquí..." />
+                                    </div>
+                                    <button type="submit" class="btn btn-primary" disabled="@isProcessing">
+                                        @if (isProcessing)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                        }
+                                        Publicar Comentario
+                                    </button>
+                                </EditForm>
+                            </div>
+                            <hr />
+                        }
+                        else
+                        {
+                            <div class="alert alert-info">
+                                <a href="/login">Inicia sesión</a> para poder comentar en este perfil.
+                            </div>
+                        }
+
+                        <h5 class="mb-3">Comentarios (@(comentarios?.Count ?? 0))</h5>
+
+                        @if (comentarios == null || !comentarios.Any())
+                        {
+                            <p class="text-muted">No hay comentarios aún. ¡Sé el primero en comentar!</p>
+                        }
+                        else
+                        {
+                            <div class="list-group">
+                                @foreach (var comentario in comentarios)
+                                {
+                                    <div class="list-group-item">
+                                        <div class="d-flex w-100 justify-content-between align-items-start">
+                                            <div class="d-flex">
+                                                @if (!string.IsNullOrEmpty(comentario.UsuarioComentario?.Foto))
+                                                {
+                                                    <img src="@comentario.UsuarioComentario.Foto" alt="@comentario.UsuarioComentario.Nombre" class="rounded-circle me-3" style="width: 50px; height: 50px; object-fit: cover;" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="rounded-circle bg-secondary me-3 d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
+                                                        <span class="text-white">@(comentario.UsuarioComentario?.Nombre.Substring(0, 1).ToUpper() ?? "?")</span>
+                                                    </div>
+                                                }
+                                                <div>
+                                                    <h6 class="mb-1">@(comentario.UsuarioComentario?.Nombre ?? "Usuario")</h6>
+                                                    <p class="mb-1">@comentario.Contenido</p>
+                                                    <small class="text-muted">@comentario.FechaCreacion.ToString("dd/MM/yyyy HH:mm")</small>
+                                                </div>
+                                            </div>
+                                            @if (comentario.UsuarioComentarioId.ToString() == currentUserId)
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => EliminarComentario(comentario.Id)">
+                                                    Eliminar
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int PerfilId { get; set; }
+
+    private Perfil? perfil;
+    private List<Comentario>? comentarios;
+    private Comentario nuevoComentario = new Comentario();
+    private bool isLoading = true;
+    private bool isProcessing = false;
+    private string errorMessage = string.Empty;
+    private string currentUserEmail = string.Empty;
+    private string currentUserId = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUser();
+        await LoadPerfil();
+        await LoadComentarios();
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        try
+        {
+            var userJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "currentUser");
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+
+            if (!string.IsNullOrEmpty(userJson) && !string.IsNullOrEmpty(token))
+            {
+                var user = System.Text.Json.JsonSerializer.Deserialize<Perfil>(userJson);
+                if (user != null)
+                {
+                    currentUserEmail = user.Email;
+                    currentUserId = user.Id.ToString();
+                    ComentarioService.SetAuthToken(token);
+                }
+            }
+        }
+        catch { }
+    }
+
+    private async Task LoadPerfil()
+    {
+        isLoading = true;
+        try
+        {
+            perfil = await PerfilService.GetPerfilAsync(PerfilId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar perfil: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadComentarios()
+    {
+        try
+        {
+            comentarios = await ComentarioService.GetComentariosByPerfilAsync(PerfilId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar comentarios: {ex.Message}");
+        }
+    }
+
+    private async Task HandleCrearComentario()
+    {
+        if (string.IsNullOrWhiteSpace(nuevoComentario.Contenido))
+        {
+            errorMessage = "El comentario no puede estar vacío.";
+            return;
+        }
+
+        isProcessing = true;
+        errorMessage = string.Empty;
+
+        try
+        {
+            nuevoComentario.PerfilId = PerfilId;
+            nuevoComentario.UsuarioComentarioId = int.Parse(currentUserId);
+
+            var result = await ComentarioService.CreateComentarioAsync(nuevoComentario);
+            if (result != null)
+            {
+                nuevoComentario = new Comentario();
+                await LoadComentarios();
+            }
+            else
+            {
+                errorMessage = "Error al publicar el comentario.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task EliminarComentario(int comentarioId)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm", "¿Estás seguro de que deseas eliminar este comentario?"))
+        {
+            try
+            {
+                var result = await ComentarioService.DeleteComentarioAsync(comentarioId);
+                if (result)
+                {
+                    await LoadComentarios();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al eliminar comentario: {ex.Message}");
+            }
+        }
+    }
+
+    private void Volver()
+    {
+        Navigation.NavigateTo("/");
+    }
+}

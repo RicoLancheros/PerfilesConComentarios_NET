@@ -1,0 +1,134 @@
+﻿@page "/"
+@using FrontEndPerfiles.Models
+@using FrontEndPerfiles.Services
+@inject PerfilService PerfilService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Perfiles</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Perfiles de Usuarios</h1>
+        @if (!string.IsNullOrEmpty(currentUserEmail))
+        {
+            <div>
+                <span class="me-3">Hola, @currentUserName</span>
+                <button class="btn btn-outline-danger btn-sm" @onclick="Logout">Cerrar Sesión</button>
+            </div>
+        }
+        else
+        {
+            <div>
+                <a href="/login" class="btn btn-primary me-2">Iniciar Sesión</a>
+                <a href="/registro" class="btn btn-success">Registrarse</a>
+            </div>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+        </div>
+    }
+    else if (perfiles == null || !perfiles.Any())
+    {
+        <div class="alert alert-info">
+            No hay perfiles registrados aún. ¡Sé el primero en registrarte!
+        </div>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-md-3 g-4">
+            @foreach (var perfil in perfiles)
+            {
+                <div class="col">
+                    <div class="card h-100" style="cursor: pointer;" @onclick="() => VerPerfil(perfil.Id)">
+                        <div class="card-body text-center">
+                            @if (!string.IsNullOrEmpty(perfil.Foto))
+                            {
+                                <img src="@perfil.Foto" alt="@perfil.Nombre" class="rounded-circle mb-3" style="width: 150px; height: 150px; object-fit: cover;" />
+                            }
+                            else
+                            {
+                                <div class="rounded-circle bg-secondary mb-3 mx-auto d-flex align-items-center justify-content-center" style="width: 150px; height: 150px;">
+                                    <span class="text-white fs-1">@perfil.Nombre.Substring(0, 1).ToUpper()</span>
+                                </div>
+                            }
+                            <h5 class="card-title">@perfil.Nombre</h5>
+                            <p class="card-text">
+                                <small class="text-muted">@perfil.Email</small><br />
+                                <small>@perfil.Telefono</small><br />
+                                <small>@perfil.Direccion</small>
+                            </p>
+                            <button class="btn btn-primary btn-sm">Ver Perfil</button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<Perfil>? perfiles;
+    private bool isLoading = true;
+    private string currentUserEmail = string.Empty;
+    private string currentUserName = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUser();
+        await LoadPerfiles();
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        try
+        {
+            var userJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "currentUser");
+            if (!string.IsNullOrEmpty(userJson))
+            {
+                var user = System.Text.Json.JsonSerializer.Deserialize<Perfil>(userJson);
+                if (user != null)
+                {
+                    currentUserEmail = user.Email;
+                    currentUserName = user.Nombre;
+                }
+            }
+        }
+        catch { }
+    }
+
+    private async Task LoadPerfiles()
+    {
+        isLoading = true;
+        try
+        {
+            perfiles = await PerfilService.GetPerfilesAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al cargar perfiles: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void VerPerfil(int perfilId)
+    {
+        Navigation.NavigateTo($"/perfil/{perfilId}");
+    }
+
+    private async Task Logout()
+    {
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "authToken");
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "currentUser");
+        Navigation.NavigateTo("/", true);
+    }
+}
